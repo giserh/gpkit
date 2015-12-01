@@ -145,6 +145,7 @@ class SolutionArray(DictOfLists):
                                    included_models=included_models,
                                    excluded_models=excluded_models,
                                    minval=1e-2,
+                                   sortbyvals=True,
                                    printunits=False,
                                    latex=latex)]
         return "\n".join(strs)
@@ -152,7 +153,8 @@ class SolutionArray(DictOfLists):
 
 def results_table(data, title, minval=0, printunits=True, fixedcols=True,
                   varfmt="%s : ", valfmt="%-.4g ", vecfmt="%-8.3g",
-                  included_models=None, excluded_models=None, latex=False):
+                  included_models=None, excluded_models=None, latex=False,
+                  sortbyvals=False):
     """
     Pretty string representation of a dict of VarKeys
     Iterable values are handled specially (partial printing)
@@ -183,16 +185,23 @@ def results_table(data, title, minval=0, printunits=True, fixedcols=True,
             b = isinstance(v, Iterable) and bool(v.shape)
             model = k.descr.get("model", "")
             models.add(model)
-            decorated.append((model, b, (varfmt % k.nomstr), i, k, v))
+            if not sortbyvals:
+                decorated.append((model, b, (varfmt % k.nomstr), i, k, v))
+            else:
+                decorated.append((model, b, v, (varfmt % k.nomstr), i, k))
     if included_models:
         included_models = set(included_models)
         included_models.add("")
         models = models.intersection(included_models)
     if excluded_models:
         models = models.difference(excluded_models)
-    decorated.sort()
+    decorated.sort(reverse=sortbyvals)
     oldmodel = None
-    for model, isvector, varstr, _, var, val in decorated:
+    for varlist in decorated:
+        if not sortbyvals:
+            model, isvector, varstr, _, var, val = varlist
+        else:
+            model, isvector, val, varstr, _, var = varlist
         if model not in models:
             continue
         if model != oldmodel and len(models) > 1:
