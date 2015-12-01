@@ -5,8 +5,9 @@ import sys
 from time import time
 
 from .variables import Variable, VectorVariable
-from .small_classes import CootMatrix
+from .small_classes import CootMatrix, HashVector, KeyDict, KeySet
 from .nomial_data import NomialData
+from .nomials import Posynomial
 from .small_classes import SolverLog
 
 from .small_scripts import is_sweepvar
@@ -43,18 +44,28 @@ class GeometricProgram(NomialData):
     >>> gp.solve()
     """
 
-    def __init__(self, cost, constraints, verbosity=1):
+    def __init__(self, cost, constraints, substitutions=None, verbosity=1):
         self.cost = cost
         self.constraints = constraints
-        self.posynomials = [cost] + list(constraints)
+        cost = cost.sub(cost.values)
+        subbedcost = cost.sub(substitutions) if substitutions else cost
+        self.posynomials = [subbedcost]
+        self.constr_idxs = []
+        for constraint in constraints:
+            if substitutions:
+                constraint.substitutions.update(substitutions)
+            constr_posys = constraint.as_posyslt1()
+            if not all(constr_posys):
+                raise ValueError("%s is an invalid constraint for a"
+                                 " GeometricProgram" % constraint)
+            self.constr_idxs.append(range(len(self.posynomials),
+                                    len(self.posynomials)+len(constr_posys)))
+            self.posynomials.extend(constr_posys)
         # init NomialData to create self.exps, self.cs, and so on
         super(GeometricProgram, self).init_from_nomials(self.posynomials)
         if self.any_nonpositive_cs:
             raise ValueError("GeometricPrograms cannot contain Signomials.")
         unsubbed = [k for k, v in self.values.items() if not is_sweepvar(v)]
-        if unsubbed:
-            raise ValueError("GeometricPrograms do not handle substitution,"
-                             " but varkeys %s had a value." % unsubbed)
         # k [j]: number of monomials (columns of F) present in each constraint
         self.k = [len(p.cs) for p in self.posynomials]
         # p_idxs [i]: posynomial index of each monomial
@@ -152,12 +163,15 @@ class GeometricProgram(NomialData):
         # confirm lengths before calling zip
         primal = np.ravel(solver_out['primal'])
         assert len(self.varlocs) == len(primal)
-        result["variables"] = dict(zip(self.varlocs,
-                                       np.exp(primal)))
+        result["freevariables"] = dict(zip(self.varlocs, np.exp(primal)))
+        result["variables"] = result["freevariables"]
+        x = result["variables"].keys()[0]
+
         if "objective" in solver_out:
             result["cost"] = float(solver_out["objective"])
         else:
-            result["cost"] = self.cost.subsummag(result["variables"])
+            # use self.posynomials[0] becaues cost has been subbed
+            result["cost"] = self.posynomials[0].subsummag(result["variables"])
 
         result["sensitivities"] = {}
         if "nu" in solver_out:
@@ -176,14 +190,39 @@ class GeometricProgram(NomialData):
                             for p_i, m_is in enumerate(m_iss)])
         else:
             raise RuntimeWarning("The dual solution was not returned.")
-        result["sensitivities"]["monomials"] = nu
-        result["sensitivities"]["posynomials"] = la
+
+        result["sensitivities"] = {"constraints": {}}
+        var_senss = {var: sum([self.cost.exps[i][var]*nu[i] for i in locs])
+                     for (var, locs) in self.cost.varlocs.items()
+                     if (var in self.cost.varlocs
+                         and var not in self.posynomials[0].varlocs)}
+        var_senss = HashVector(var_senss)
+        for c_i, posy_idxs in enumerate(self.constr_idxs):
+            constr = self.constraints[c_i]
+            p_senss = [la[p_i] for p_i in posy_idxs]
+            m_sensss = [[nu[i] for i in self.m_idxs[p_i]] for p_i in posy_idxs]
+            constr_sens, p_var_senss = constr.sensitivities(p_senss, m_sensss)
+            result["sensitivities"]["constraints"][str(constr)] = constr_sens
+            var_senss += p_var_senss
+        result["sensitivities"]["constants"] = KeyDict(var_senss)
+
+        result["constants"] = {}
+        for constraint in self.constraints:
+            for dictionary in [result["constants"], result["variables"]]:
+                dictionary.update(constraint.substitutions)
+        for key in ["freevariables", "variables", "constants"]:
+            result[key] = KeyDict(result[key])
+            result[key].bake()
+
+        for constaint in self.constraints:
+            if hasattr(constraint, "process_result"):
+                constraint.process_result(result)
 
         self.result = result  # NOTE: SIDE EFFECTS
 
         if verbosity > 1:
-            print ("result packing took %.2g%% of solve time" %
-                   ((time() - tic) / soltime * 100))
+            print("result packing took %.2g%% of solve time" %
+                  ((time() - tic) / soltime * 100))
             tic = time()
 
         if solver_out.get("status", None) not in ["optimal", "OPTIMAL"]:
@@ -202,8 +241,8 @@ class GeometricProgram(NomialData):
         self.check_solution(result["cost"], primal, nu, la)
 
         if verbosity > 1:
-            print ("solution checking took %.2g%% of solve time" %
-                   ((time() - tic) / soltime * 100))
+            print("solution checking took %.2g%% of solve time" %
+                  ((time() - tic) / soltime * 100))
         return result
 
     def check_solution(self, cost, primal, nu, la, tol=1e-5):
@@ -269,7 +308,7 @@ class GeometricProgram(NomialData):
         return "\n".join(["  # minimize",
                           "    %s," % self.cost,
                           "[ # subject to"] +
-                         ["    %s <= 1," % constr
+                         ["    %s," % constr
                           for constr in self.constraints] +
                          [']'])
 
@@ -282,7 +321,7 @@ class GeometricProgram(NomialData):
                           "\\text{minimize}",
                           "    & %s \\\\" % self.cost.latex(),
                           "\\text{subject to}"] +
-                         ["    & %s \\leq 1\\\\" % constr.latex()
+                         ["    & %s \\\\" % constr.latex()
                           for constr in self.constraints] +
                          ["\\end{array}"])
 
@@ -314,6 +353,7 @@ def genA(exps, varlocs):
     for j, var in enumerate(varlocs):
         varsign = "both" if "value" in var.descr else None
         for i in varlocs[var]:
+            act_key = exps[i].keys()[exps[i].keys().index(var)]
             exp = exps[i][var]
             A.append(i, j, exp)
             if varsign is "both":

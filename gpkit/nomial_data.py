@@ -7,7 +7,7 @@ from functools import reduce as functools_reduce
 from operator import add
 
 from .varkey import VarKey
-from .small_classes import HashVector, Quantity
+from .small_classes import HashVector, Quantity, KeySet, KeyDict
 from .small_scripts import mag
 
 
@@ -28,9 +28,18 @@ class NomialData(object):
             exps, cs = simplify_exps_and_cs(exps, cs)
         self.exps, self.cs = exps, cs
         self.any_nonpositive_cs = any(mag(c) <= 0 for c in self.cs)
-        self.varlocs, self.varstrs = locate_vars(self.exps)
-        self.values = {vk: vk.descr["value"] for vk in self.varlocs
-                       if "value" in vk.descr}
+
+        varlocs = {}
+        for i, exp in enumerate(exps):
+            for var in exp:
+                if var not in varlocs:
+                    varlocs[var] = []
+                varlocs[var].append(i)
+        self.varlocs = varlocs
+        self.varkeys = KeySet(self.varlocs)
+        self.values = KeyDict({vk: vk.descr["value"] for vk in self.varkeys
+                               if "value" in vk.descr})
+
         if isinstance(self.cs, Quantity):
             self.units = Quantity(1, self.cs.units)
         else:
@@ -66,27 +75,6 @@ class NomialData(object):
     def __repr__(self):
         return "gpkit.%s(%s)" % (self.__class__.__name__, hash(self))
 
-    def _get_varkey(self, var):
-        """Cast a var associated with this problem to type VarKey
-
-        Arguments
-        ---------
-        var (Variable, VarKey, or str):
-            the variable to cast
-
-        Returns
-        -------
-        VarKey
-        """
-        if isinstance(var, VarKey):
-            return var
-        if var in self.varstrs:
-            return self.varstrs[var]
-        try:
-            return var.key
-        except AttributeError:
-            raise TypeError("Cannot convert %s to VarKey" % var)
-
     def sub(self, substitutions, val=None, require_positive=True):
         if hasattr(self, "nomials"):
             subbed_nomials = [n.sub(substitutions, val, require_positive)
@@ -109,7 +97,7 @@ class NomialData(object):
         -------
         NomialData
         """
-        var = self._get_varkey(var)
+        var, = self.varkeys[var]
         exps, cs = [], []
         # var.units may be str if units disabled
         var_units = (var.units if var.units and not isinstance(var.units, str)
@@ -191,41 +179,3 @@ def simplify_exps_and_cs(exps, cs, return_map=False):
             for j in expmap[exp]:
                 mmap[i][j] = mag(expmap[exp][j]/c)
         return exps_, cs_, mmap
-
-
-def locate_vars(exps):
-    "From exponents form a dictionary of which monomials each variable is in."
-    varlocs = defaultdict(list)
-    varstrs = defaultdict(set)
-    for i, exp in enumerate(exps):
-        for var in exp:
-            varlocs[var].append(i)
-            varstrs[var.name].add(var)
-
-    varkeys_ = dict(varstrs)
-    for name, varl in varkeys_.items():
-        for vk in varl:
-            descr = vk.descr
-            break
-        if "shape" in descr:
-            # vector var
-            newlist = np.zeros(descr["shape"], dtype="object")
-            for var in varl:
-                newlist[var.descr["idx"]] = var
-            varstrs[name] = newlist
-        else:
-            if len(varl) == 1:
-                varstrs[name] = varl.pop()
-            else:
-                varstrs[name] = []
-                for var in varl:
-                    if "model" in var.descr:
-                        varstrs[name+"_%s" % var.descr["model"]] = var
-                    else:
-                        varstrs[name].append(var)
-                if len(varstrs[name]) == 1:
-                    varstrs[name] = varstrs[name][0]
-                elif len(varstrs[name]) == 0:
-                    del varstrs[name]
-
-    return dict(varlocs), dict(varstrs)

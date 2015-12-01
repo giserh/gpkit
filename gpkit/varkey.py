@@ -24,6 +24,8 @@ class VarKey(object):
     VarKey with the given name and descr.
     """
     new_unnamed_id = Counter()
+    subscripts = ["model", "idx"]
+    eq_ignores = frozenset(["units", "value"])
 
     def __init__(self, name=None, **kwargs):
         self.descr = kwargs
@@ -59,36 +61,33 @@ class VarKey(object):
             else:
                 raise ValueError("units must be either a string"
                                  " or a Quantity from gpkit.units.")
-        self._hashvalue = hash(self.nomstr)
+        self._hashvalue = hash(self.str_without("model"))  # HACK
         self.key = self
+        self.descr["unitstr"] = self.make_unitstr()
+
+    def __repr__(self, *exclude):
+        return self.str_without()
+
+    def str_without(self, *exclude):
+        string = self.name
+        for subscript in self.subscripts:
+            if subscript in self.descr and subscript not in exclude:
+                string += "_" + str(self.descr[subscript])
+        return string
 
     @property
-    def name(self):
-        "name of this VarKey"
-        return self.descr['name']
+    def allstrs(self):
+        strings = set([str(self), self.name, self.latex()])
+        strings.update(self.str_without(ss) for ss in self.subscripts)
+        return strings
 
-    @property
-    def nomstr(self):
-        "string representation of this VarKey without the modelname"
-        return self.__repr__(["idx"])
+    def __getattr__(self, attr):
+        return self.descr.get(attr, None)
 
-    @property
-    def units(self):
-        """units of this VarKey"""
-        return self.descr.get("units", None)
-
-    @property
-    def unitstr(self):
+    def make_unitstr(self):
         units = unitstr(self.units, r"~\mathrm{%s}", "L~")
         units_tf = units.replace("frac", "tfrac").replace(r"\cdot", r"\cdot ")
         return units_tf if units_tf != r"~\mathrm{-}" else ""
-
-    def __repr__(self, subscripts=["model", "idx"]):
-        s = self.name
-        for subscript in subscripts:
-            if subscript in self.descr:
-                s = "%s_%s" % (s, self.descr[subscript])
-        return s
 
     def latex(self):
         s = self.name
@@ -107,43 +106,19 @@ class VarKey(object):
         return self._hashvalue
 
     def __eq__(self, other):
-        if isinstance(other, VarKey):
-            if set(self.descr.keys()) != set(other.descr.keys()):
-                return False
-            for key in self.descr:
-                if key == "units":
-                    try:
-                        if not self.descr["units"] == other.descr["units"]:
-                            d = self.descr["units"]/other.descr["units"]
-                            if str(d.units) != "dimensionless":
-                                if not abs(mag(d)-1.0) <= 1e-7:
-                                    return False
-                    except:
-                        return False
-                else:
-                    if not isequal(self.descr[key], other.descr[key]):
-                        return False
-            return True
-        elif isinstance(other, Strings):
-            return self.nomstr == other
-        elif hasattr(other, "key"):
-            return other.key == self
-        elif isinstance(other, PosyArray):
-            it = np.nditer(other, flags=['multi_index', 'refs_ok'])
-            while not it.finished:
-                i = it.multi_index
-                it.iternext()
-                p = other[i]
-                if not hasattr(p, "exp"):  # array contains non-Monomial
-                    return False
-                v = VarKey(list(p.exp)[0])
-                if v.descr.pop("idx", None) != i:
-                    return False
-                if v != self:
-                    return False
-            return True
-        else:
+        if not hasattr(other, "descr"):
             return False
+        if self.descr["name"] != other.descr["name"]:
+            return False
+        keyset = set(self.descr.keys())
+        keyset = keyset.symmetric_difference(other.descr.keys())
+        if keyset - self.eq_ignores:
+            return False
+        for key in self.descr:
+            if key not in self.eq_ignores:
+                if self.descr[key] != other.descr[key]:
+                    return False
+        return True
 
     def __ne__(self, other):
         return not self.__eq__(other)

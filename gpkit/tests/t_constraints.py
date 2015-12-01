@@ -1,8 +1,8 @@
 """Unit tests for Constraint, MonoEQConstraint and SignomialConstraint"""
 import unittest
 from gpkit import Variable, SignomialsEnabled
-from gpkit.nomials import Posynomial
-from gpkit.nomials import Constraint, MonoEQConstraint, SignomialConstraint
+from gpkit.nomials import Posynomial, PosynomialConstraint, MonoEQConstraint
+from gpkit.nomials import Signomial, SignomialConstraint
 
 
 class TestConstraint(unittest.TestCase):
@@ -13,10 +13,14 @@ class TestConstraint(unittest.TestCase):
         x = Variable('x')
         c1 = 1 >= 10*x
         c2 = 1 >= 5*x + 0.5
-        self.assertEqual(type(c1), Constraint)
-        self.assertEqual(type(c2), Constraint)
-        self.assertEqual(c1.cs, c2.cs)
-        self.assertEqual(c1.exps, c2.exps)
+        self.assertEqual(type(c1), PosynomialConstraint)
+        self.assertEqual(type(c2), PosynomialConstraint)
+        self.assertEqual(c1.posylt1_rep
+.cs, c2.posylt1_rep
+.cs)
+        self.assertEqual(c1.posylt1_rep
+.exps, c2.posylt1_rep
+.exps)
 
     def test_additive_scalar_gt1(self):
         """1 can't be greater than (1 + something positive)"""
@@ -31,15 +35,15 @@ class TestConstraint(unittest.TestCase):
         """Test Constraint __init__"""
         x = Variable('x')
         y = Variable('y')
-        # default assumes >= operator
-        c = Constraint(x, y**2)
-        self.assertEqual(c, y**2/x)
+        c = PosynomialConstraint(x, ">=", y**2)
+        self.assertEqual(c.posylt1_rep
+, y**2/x)
         self.assertEqual(c.left, x)
         self.assertEqual(c.right, y**2)
         self.assertTrue(">=" in str(c))
-        # now force <= operator
-        c = Constraint(x, y**2, oper_ge=False)
-        self.assertEqual(c, x/y**2)
+        c = PosynomialConstraint(x, "<=", y**2)
+        self.assertEqual(c.posylt1_rep
+, x/y**2)
         self.assertEqual(c.left, x)
         self.assertEqual(c.right, y**2)
         self.assertTrue("<=" in str(c))
@@ -49,13 +53,16 @@ class TestConstraint(unittest.TestCase):
         x = Variable('x')
         y = Variable('y')
         c = (y >= 1 + x**2)
-        self.assertEqual(c, 1/y + x**2/y)
+        self.assertEqual(c.posylt1_rep
+, 1/y + x**2/y)
         self.assertEqual(c.left, y)
         self.assertEqual(c.right, 1 + x**2)
         self.assertTrue(">=" in str(c))
         # same constraint, switched operator direction
         c2 = (1 + x**2 <= y)  # same as c
-        self.assertEqual(c2, c)
+        self.assertEqual(c2.posylt1_rep
+, c.posylt1_rep
+)
 
 
 class TestMonoEQConstraint(unittest.TestCase):
@@ -69,11 +76,9 @@ class TestMonoEQConstraint(unittest.TestCase):
         # operator overloading
         mec = (x == y**2)
         # __init__
-        mec2 = MonoEQConstraint(x, y**2)
-        self.assertTrue(mec2.leq == mono or mec2.geq == mono)
-        self.assertTrue(mono == mec2.leq or mono == mec2.geq)
-        self.assertTrue(mono == mec.leq or mono == mec.geq)
-        self.assertTrue(mec.leq == mono or mec.geq == mono)
+        mec2 = MonoEQConstraint(x, "=", y**2)
+        self.assertTrue(mono in mec2.posylt1_rep
+)
 
     def test_inheritance(self):
         """Make sure MonoEQConstraint inherits from the right things"""
@@ -82,17 +87,14 @@ class TestMonoEQConstraint(unittest.TestCase):
         a = Variable('a')
         mec = (F == m*a)
         self.assertTrue(isinstance(mec, MonoEQConstraint))
-        self.assertTrue(isinstance(mec, Constraint))
-        # seems like mec should also be Monomial (not just Posynomial),
-        # but that fails. TODO change next line to Monomial.
-        self.assertTrue(isinstance(mec, Posynomial))
 
     def test_non_monomial(self):
         """Try to initialize a MonoEQConstraint with non-monomial args"""
         x = Variable('x')
         y = Variable('y')
         # try to initialize a Posynomial Equality constraint
-        self.assertRaises(TypeError, MonoEQConstraint, x*y, x + y)
+        self.assertRaises(ValueError, MonoEQConstraint, x*y, x + y)
+        self.assertRaises(TypeError, MonoEQConstraint, x*y, "=", x + y)
 
     def test_str(self):
         "Test that MonoEQConstraint.__str__ returns a string"

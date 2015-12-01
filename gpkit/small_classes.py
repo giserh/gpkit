@@ -1,6 +1,6 @@
 """Miscellaneous small classes"""
 import numpy as np
-from collections import namedtuple as nt
+from collections import namedtuple, defaultdict
 from . import units
 
 try:
@@ -12,8 +12,9 @@ except NameError:
 Quantity = units.Quantity
 Numbers = (int, float, np.number, Quantity)
 
-PosyTuple = nt('PosyTuple', ['exps', 'cs', 'varlocs', 'substitutions'])
-CootMatrixTuple = nt('CootMatrix', ['row', 'col', 'data'])
+from .keydict import KeyDict, KeySet, veckeyed
+
+CootMatrixTuple = namedtuple('CootMatrix', ['row', 'col', 'data'])
 
 
 class CootMatrix(CootMatrixTuple):
@@ -55,13 +56,12 @@ class CootMatrix(CootMatrixTuple):
 
 
 class Counter(object):
-
     def __init__(self):
-        self.start = -1
+        self.count = -1
 
     def __call__(self):
-        self.start += 1
-        return self.start
+        self.count += 1
+        return self.count
 
 
 class SolverLog(list):
@@ -105,20 +105,25 @@ def enlist_dict(i, o):
     "Recursviely copies dict i into o, placing non-dict items into lists."
     for k, v in i.items():
         if isinstance(v, dict):
-            o[k] = enlist_dict(v, {})
+            o[k] = enlist_dict(v, v.__class__())
         else:
+            if isinstance(v, np.ndarray) and v.size == 1:
+                v = v.flatten()[0]
             o[k] = [v]
     assert set(i.keys()) == set(o.keys())
     return o
 
 
 def append_dict(i, o):
-    "Recursviely travels dict o and appends items found in i."
+    "Recursively travels dict o and appends items found in i."
     for k, v in i.items():
         if isinstance(v, dict):
             o[k] = append_dict(v, o[k])
         else:
+            if isinstance(v, np.ndarray) and v.size == 1:
+                v = v.flatten()[0]
             o[k].append(v)
+            # consider apennding nan / nanvector for new / missed keys
     # assert set(i.keys()) == set(o.keys())  # keys change with swept varkeys
     return o
 
@@ -127,12 +132,13 @@ def index_dict(idx, i, o):
     "Recursviely travels dict i, placing items at idx into dict o."
     for k, v in i.items():
         if isinstance(v, dict):
-            o[k] = index_dict(idx, v, {})
+            o[k] = index_dict(idx, v, v.__class__())
         else:
             try:
                 o[k] = v[idx]
             except IndexError:  # if not an array, return as is
                 o[k] = v
+                # consider apennding nan / nanvector for new / missed keys
     # assert set(i.keys()) == set(o.keys())  # keys change with swept varkeys
     return o
 
@@ -141,15 +147,15 @@ def enray_dict(i, o):
     "Recursively turns lists into numpy arrays."
     for k, v in i.items():
         if isinstance(v, dict):
-            o[k] = enray_dict(v, {})
+            o[k] = enray_dict(v, v.__class__())
         else:
             if len(v) == 1:
-                o[k] = np.array(v[0])
+                o[k] = v[0]
             else:
                 o[k] = np.array(v)
+                # consider apennding nan / nanvector for new / missed keys
     # assert set(i.keys()) == set(o.keys())  # keys change with swept varkeys
     return o
-
 
 class HashVector(dict):
     """A simple, sparse, string-indexed vector. Inherits from dict.
@@ -166,6 +172,7 @@ class HashVector(dict):
     >>> x = gpkit.nomials.Monomial('x')
     >>> exp = gpkit.small_classes.HashVector({x: 2})
     """
+
     def __init__(self, *args, **kwargs):
         super(HashVector, self).__init__(*args, **kwargs)
         self._hashvalue = None
@@ -182,12 +189,12 @@ class HashVector(dict):
 
     def __neg__(self):
         "Return Hashvector with each value negated."
-        return HashVector({key: -val for (key, val) in self.items()})
+        return self.__class__({key: -val for (key, val) in self.items()})
 
     def __pow__(self, other):
         "Accepts scalars. Return Hashvector with each value put to a power."
         if isinstance(other, Numbers):
-            return HashVector({key: val**other for (key, val) in self.items()})
+            return self.__class__({key: val**other for (key, val) in self.items()})
         else:
             return NotImplemented
 
@@ -197,10 +204,10 @@ class HashVector(dict):
         If the other object inherits from dict, multiplication is element-wise
         and their key's intersection will form the new keys."""
         if isinstance(other, Numbers):
-            return HashVector({key: val*other for (key, val) in self.items()})
+            return self.__class__({key: val*other for (key, val) in self.items()})
         elif isinstance(other, dict):
             keys = set(self).intersection(other)
-            return HashVector({key: self[key] * other[key] for key in keys})
+            return self.__class__({key: self[key] * other[key] for key in keys})
         else:
             return NotImplemented
 
@@ -210,12 +217,12 @@ class HashVector(dict):
         If the other object inherits from dict, addition is element-wise
         and their key's union will form the new keys."""
         if isinstance(other, Numbers):
-            return HashVector({key: val+other
+            return self.__class__({key: val+other
                                for (key, val) in self.items()})
         elif isinstance(other, dict):
             keys = set(self).union(other)
             sums = {key: self.get(key, 0) + other.get(key, 0) for key in keys}
-            return HashVector(sums)
+            return self.__class__(sums)
         else:
             return NotImplemented
 
@@ -225,3 +232,7 @@ class HashVector(dict):
     def __div__(self, other): return self * other**-1
     def __rdiv__(self, other): return other * self**-1
     def __rmul__(self, other): return self * other
+
+
+class KeyVector(HashVector, KeyDict):
+    collapse_arrays = False
