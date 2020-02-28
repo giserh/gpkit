@@ -1,7 +1,21 @@
-gpkit.interactive
+gpkit.interactive package
 =========================
 
-.. automodule:: gpkit.interactive
+Submodules
+----------
+
+gpkit.interactive.chartjs module
+--------------------------------
+
+.. automodule:: gpkit.interactive.chartjs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+gpkit.interactive.plot_sweep module
+-----------------------------------
+
+.. automodule:: gpkit.interactive.plot_sweep
     :members:
     :undoc-members:
     :show-inheritance:
@@ -14,22 +28,6 @@ gpkit.interactive.plotting module
     :undoc-members:
     :show-inheritance:
 
-gpkit.interactive.pretty_print module
--------------------------------------
-
-.. automodule:: gpkit.interactive.pretty_print
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-gpkit.interactive.printing module
----------------------------------
-
-.. automodule:: gpkit.interactive.printing
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 gpkit.interactive.ractor module
 -------------------------------
 
@@ -38,10 +36,27 @@ gpkit.interactive.ractor module
     :undoc-members:
     :show-inheritance:
 
-gpkit.interactive.widget module
+gpkit.interactive.sankey module
 -------------------------------
 
-.. automodule:: gpkit.interactive.widget
+.. automodule:: gpkit.interactive.sankey
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+gpkit.interactive.widgets module
+--------------------------------
+
+.. automodule:: gpkit.interactive.widgets
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: gpkit.interactive
     :members:
     :undoc-members:
     :show-inheritance:

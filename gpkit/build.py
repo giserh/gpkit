@@ -1,4 +1,5 @@
-from __future__ import print_function
+"Finds solvers, sets gpkit settings, and builds gpkit"
+from __future__ import unicode_literals, print_function
 
 import os
 import sys
@@ -6,30 +7,33 @@ import shutil
 import subprocess
 import glob
 
-logstr = ""
+LOGSTR = ""
 settings = {}
 
 
 def log(*args):
-    global logstr
+    "Print a line and append it to the log string."
+    global LOGSTR  # pylint: disable=global-statement
     print(*args)
-    logstr += " ".join(args) + "\n"
+    LOGSTR += " ".join(args) + "\n"
 
 
 def pathjoin(*args):
+    "Join paths, collating multiple arguments."
     return os.sep.join(args)
 
 
 def isfile(path):
+    "Returns true if there's a file at $path. Logs."
     if os.path.isfile(path):
         log("#     Found %s" % path)
         return True
-    else:
-        log("#     Could not find %s" % path)
-        return False
+    log("#     Could not find %s" % path)
+    return False
 
 
 def replacedir(path):
+    "Replaces directory at $path. Logs."
     log("#     Replacing directory", path)
     if os.path.isdir(path):
         shutil.rmtree(path)
@@ -38,6 +42,7 @@ def replacedir(path):
 
 
 def call(cmd):
+    "Calls subprocess. Logs."
     log("#     Calling '%s'" % cmd)
     log("##")
     log("### CALL BEGINS")
@@ -48,11 +53,12 @@ def call(cmd):
 
 
 def diff(filename, diff_dict):
+    "Applies a simple diff to a file. Logs."
     with open(filename, "r") as a:
         with open(filename+".new", "w") as b:
             for line_number, line in enumerate(a):
-                if line[:-1] in diff_dict:
-                    newline = diff_dict[line[:-1]]+"\n"
+                if line[:-1].strip() in diff_dict:
+                    newline = diff_dict[line[:-1].strip()]+"\n"
                     log("#\n#     Change in %s"
                         "on line %i" % (filename, line_number + 1))
                     log("#     --", line[:-1][:70])
@@ -64,50 +70,76 @@ def diff(filename, diff_dict):
 
 
 class SolverBackend(object):
+    "Inheritable class for finding solvers. Logs."
     installed = False
+    name = None
+    look = None
+    build = None
 
     def __init__(self):
         log("# Looking for", self.name)
-        location = self.look()
+        location = self.look()  # pylint: disable=not-callable
         if location is not None:
             log("# Found %s %s" % (self.name, location))
-            if not hasattr(self, 'build'):
+            if not self.build:
                 self.installed = True
             else:
                 log("#\n# Building %s..." % self.name)
-                self.installed = self.build()
+                self.installed = self.build()  # pylint: disable=not-callable
                 status = "Done" if self.installed else "Failed"
                 log("# %s building %s" % (status, self.name))
         else:
             log("# Did not find", self.name)
-        log
 
 
-class Mosek_CLI(SolverBackend):
+class MosekCLI(SolverBackend):
+    "MOSEK command line interface finder."
     name = "mosek_cli"
 
     def look(self):
+        "Attempts to run mskexpopt."
         try:
             log("#   Trying to run mskexpopt...")
             if call("mskexpopt") in (1052, 28):  # 28 for MacOSX
                 return "in system path"
-        except Exception:
-            return
+        except:   # pylint: disable=bare-except
+            pass  # exception type varies by operating system
+        return None
 
 
 class CVXopt(SolverBackend):
+    "CVXopt finder."
     name = "cvxopt"
 
     def look(self):
+        "Attempts to import cvxopt."
         try:
             log("#   Trying to import cvxopt...")
-            import cvxopt
+            # Testing the import, so the variable is intentionally not used
+            import cvxopt  # pylint: disable=unused-variable
             return "in Python path"
         except ImportError:
-            return
+            pass
+
+
+class MosekConif(SolverBackend):
+    "MOSEK exponential cone solver finder."
+    name = 'mosek_conif'
+
+    def look(self):
+        "Attempts to import mosek, version >= 9."
+        try:
+            log("#   Trying to import mosek...")
+            import mosek
+            if hasattr(mosek.conetype, 'pexp'):
+                return "in Python path"
+            return None
+        except ImportError:
+            pass
 
 
 class Mosek(SolverBackend):
+    "MOSEK finder and builder."
     name = "mosek"
 
     # Some of the expopt code leaks log(statements onto stdout,)
@@ -115,92 +147,102 @@ class Mosek(SolverBackend):
     patches = {
         'dgopt.c': {
             # line 683:
-            '          printf("Number of Hessian non-zeros: %d\\n",nlh[0]->numhesnz);':
-            '          MSK_echotask(task,MSK_STREAM_MSG,"Number of Hessian non-zeros: %d\\n",nlh[0]->numhesnz);',
+            'printf("Number of Hessian non-zeros: %d\\n",nlh[0]->numhesnz);':
+            'MSK_echotask(task,MSK_STREAM_MSG,"Number of Hessian non-zeros: %d\\n",nlh[0]->numhesnz);',  # pylint: disable=line-too-long
         },
         'expopt.c': {
             # line 1115:
-            '    printf ("solsta = %d, prosta = %d\\n", (int)*solsta,(int)*prosta);':
-            '    MSK_echotask(expopttask,MSK_STREAM_MSG, "solsta = %d, prosta = %d\\n", (int)*solsta,(int)*prosta);',
-            """      printf("Warning: The variable with index '%d' has only positive coefficients akj.\\n The problem is possibly ill-posed.\\n.\\n",i);      """:
-            """      MSK_echotask(expopttask,MSK_STREAM_MSG, "Warning: The variable with index '%d' has only positive coefficients akj.\\n The problem is possibly ill-posed.\\n.\\n",i);""",
-            """      printf("Warning: The variable with index '%d' has only negative coefficients akj.\\n The problem is possibly ill-posed.\\n",i);      """:
-            """      MSK_echotask(expopttask,MSK_STREAM_MSG, "Warning: The variable with index '%d' has only negative coefficients akj.\\n The problem is possibly ill-posed.\\n",i);""",
+            'printf ("solsta = %d, prosta = %d\\n", (int)*solsta,(int)*prosta);':  # pylint: disable=line-too-long
+            'MSK_echotask(expopttask,MSK_STREAM_MSG, "solsta = %d, prosta = %d\\n", (int)*solsta,(int)*prosta);',  # pylint: disable=line-too-long
+            """printf("Warning: The variable with index '%d' has only positive coefficients akj.\\n The problem is possibly ill-posed.\\n.\\n",i);""":  # pylint: disable=line-too-long
+            """MSK_echotask(expopttask,MSK_STREAM_MSG, "Warning: The variable with index '%d' has only positive coefficients akj.\\n The problem is possibly ill-posed.\\n.\\n",i);""",  # pylint: disable=line-too-long
+            """printf("Warning: The variable with index '%d' has only negative coefficients akj.\\n The problem is possibly ill-posed.\\n",i);""":  # pylint: disable=line-too-long
+            """MSK_echotask(expopttask,MSK_STREAM_MSG, "Warning: The variable with index '%d' has only negative coefficients akj.\\n The problem is possibly ill-posed.\\n",i);""",  # pylint: disable=line-too-long
         }
     }
 
-    def look(self):
-        if sys.platform == "win32":
-            self.dir = "C:\\Program Files\\Mosek"
-            self.platform = "win64x86"
-            self.libpattern = "mosek64_?_?.dll"
-            self.flags = "-Wl,--export-all-symbols,-R"
-            ## below is for 32-bit windows ##
-            # self.dir = "C:\\Program Files (x86)\\Mosek"
-            # self.platform = "win32x86"
-            # self.libpattern = "mosek?_?.dll"
-        elif sys.platform == "darwin":
-            self.dir = pathjoin(os.path.expanduser("~"), "mosek")
-            self.platform = "osx64x86"
-            self.libpattern = "libmosek64.?.?.dylib"
-            self.flags = "-Wl,-rpath"
+    expopt_files = None
+    bin_dir = None
+    flags = None
+    lib_path = None
+    version = None
+    lib_name = None
 
-        elif sys.platform == "linux2":
-            self.dir = pathjoin(os.path.expanduser("~"), "mosek")
-            self.platform = "linux64x86"
-            self.libpattern = "libmosek64.so"
+    def look(self):  # pylint: disable=too-many-return-statements
+        "Looks in default install locations for latest mosek version."
+        if sys.platform[:3] == "win":
+            rootdir = "C:\\Program Files\\Mosek"
+            mosek_platform = "win64x86"
+            libpattern = "mosek64_?_?.dll"
+            self.flags = "-Wl,--export-all-symbols,-R"
+        elif sys.platform[:6] == "darwin":
+            rootdir = pathjoin(os.path.expanduser("~"), "mosek")
+            mosek_platform = "osx64x86"
+            libpattern = "libmosek64.?.?.dylib"
+            self.flags = "-Wl,-rpath"
+        elif sys.platform[:5] == "linux":
+            rootdir = pathjoin(os.path.expanduser("~"), "mosek")
+            mosek_platform = "linux64x86"
+            libpattern = "libmosek64.so"
             self.flags = "-Wl,--export-dynamic,-R"
 
         else:
             log("# Build script does not support"
                 " your platform (%s)" % sys.platform)
-            return
+            return None
 
-        if not os.path.isdir(self.dir):
-            return
+        if "MSKHOME" in os.environ:  # allow specification of root dir
+            rootdir = os.environ["MSKHOME"]
+            log("# Using MSKHOME environment variable (value %s) instead of"
+                " OS-default MOSEK home directory" % rootdir)
+        if not os.path.isdir(rootdir):
+            log("# the expected MOSEK directory of %s was not found" % rootdir)
+            return None
 
-        possible_versions = [f for f in os.listdir(self.dir) if len(f) == 1]
+        possible_versions = [f for f in os.listdir(rootdir) if len(f) == 1]
+        if not possible_versions:
+            log("# no mosek version folders (e.g. '7', '8') were found"
+                " in the mosek directory \"%s\"" % rootdir)
+            return None
         self.version = sorted(possible_versions)[-1]
-        self.tools_dir = pathjoin(self.dir, self.version, "tools")
-        self.lib_dir = pathjoin(self.tools_dir, "platform", self.platform)
-        self.h_path = pathjoin(self.lib_dir, "h", "mosek.h")
-        self.bin_dir = pathjoin(self.lib_dir, "bin")
-        self.lib_path = glob.glob(self.bin_dir+os.sep+self.libpattern)[0]
+        tools_dir = pathjoin(rootdir, self.version, "tools")
+        lib_dir = pathjoin(tools_dir, "platform", mosek_platform)
+        h_path = pathjoin(lib_dir, "h", "mosek.h")
+        self.bin_dir = pathjoin(lib_dir, "bin")
+        try:
+            self.lib_path = glob.glob(self.bin_dir+os.sep+libpattern)[0]
+            self.lib_name = os.path.basename(self.lib_path)
+        except IndexError:  # mosek folder found, but mosek not installed
+            return None
 
-        if not isfile(self.h_path):
-            return
-        if not isfile(self.lib_path):
-            return
+        if not isfile(h_path) or not isfile(self.lib_path):
+            return None
 
-        self.expopt_dir = pathjoin(self.tools_dir, "examples", "c")
+        expopt_dir = pathjoin(tools_dir, "examples", "c")
         expopt_filenames = ["scopt-ext.c", "expopt.c", "dgopt.c",
                             "scopt-ext.h", "expopt.h", "dgopt.h"]
-        self.expopt_files = [pathjoin(self.expopt_dir, fname)
+        self.expopt_files = [pathjoin(expopt_dir, fname)
                              for fname in expopt_filenames]
-        self.expopt_files += [self.h_path]
+        self.expopt_files += [h_path]
         for expopt_file in self.expopt_files:
             if not isfile(expopt_file):
-                return
-
-        global settings
+                return None
+        settings["mosek_lib_path"] = self.lib_path
         settings["mosek_bin_dir"] = self.bin_dir
-        os.environ['PATH'] = os.environ['PATH']+':%s' % self.bin_dir
+        settings["mosek_version"] = self.version
+        os.environ['PATH'] = os.environ['PATH'] + os.pathsep + self.bin_dir
 
-        return "version %s, installed to %s" % (self.version, self.dir)
+        return "version %s, installed to %s" % (self.version, rootdir)
 
     def build(self):
-        try:
-            import ctypesgencore
-        except ImportError:
-            log("## SKIPPING MOSEK INSTALL: CTYPESGENCORE WAS NOT FOUND")
-            return
+        "Builds a dynamic library to GPKITBUILD or $HOME/.gpkit"
+        build_dir = replacedir(pathjoin("_mosek", "build"))
 
-        lib_dir = replacedir(pathjoin("gpkit", "_mosek", "lib"))
-        solib_dir = replacedir(pathjoin(os.path.expanduser("~"), ".gpkit"))
-        f = open(pathjoin(lib_dir, "__init__.py"), 'w')
-        f.close()
+        if "GPKITBUILD" in os.environ:
+            solib_dir = replacedir(os.environ["GPKITBUILD"])
+        else:
+            solib_dir = os.path.abspath(build_dir)
 
-        build_dir = replacedir(pathjoin("gpkit", "_mosek", "build"))
         log("#\n#   Copying expopt library files to", build_dir)
         expopt_build_files = []
         for old_location in self.expopt_files:
@@ -221,68 +263,66 @@ class Mosek(SolverBackend):
                                 '   "' + self.lib_path + '"' +
                                 " -o " + pathjoin(solib_dir, "expopt.so"))
         if sys.platform == "darwin":
-            link_library = call("install_name_tool -change @loader_path/libmosek64.7.1.dylib "
-                                + self.lib_path + " "
-                                + pathjoin(solib_dir, "expopt.so"))
+            if self.version == "7":
+                call("install_name_tool -change"
+                     + " @loader_path/%s " % self.lib_name
+                     + self.lib_path + " "
+                     + pathjoin(solib_dir, "expopt.so"))
+            elif self.version == "8":
+                call("install_name_tool -change"
+                     + " %s " % self.lib_name
+                     + self.lib_path + " "
+                     + pathjoin(solib_dir, "expopt.so"))
+                call("install_name_tool -change libmosek64.8.1.dylib"
+                     + " @executable_path/libmosek64.8.1.dylib "
+                     + pathjoin(self.bin_dir, "mskexpopt"))
+
+        settings["mosek_gpkitbin_path"] = pathjoin(solib_dir, "expopt.so")
+
         if built_expopt_lib != 0:
-            return False
-
-        log("#\n#   Building Python bindings for expopt and Mosek...")
-        # mosek_h_path = pathjoin(lib_dir, "mosek_h.py")
-        built_expopt_h = call("python gpkit/modified_ctypesgen.py -a" +
-                              " -l "+pathjoin(solib_dir, "expopt.so").replace("\\", "/") +
-                              ' -l "' + self.lib_path.replace("\\", "/") + '"' +
-                              # ' -o "' + mosek_h_path.replace("\\", "/") + '"'+
-                              " -o "+pathjoin(lib_dir, "expopt_h.py") +
-                              "    "+pathjoin(build_dir, "expopt.h"))
-
-        if built_expopt_h != 0:
             return False
 
         return True
 
 
-def build_gpkit():
-    global settings
-
-    if isfile("__init__.py"):
-        #call("ls")
-        log("#     Don't want to be in a folder with __init__.py, going up!")
-        os.chdir("..")
+def build():
+    "Builds GPkit"
+    import gpkit
+    log("# Moving to the directory from which GPkit was imported.")
+    start_dir = os.getcwd()
+    os.chdir(gpkit.__path__[0])
 
     log("Started building gpkit...\n")
 
     log("Attempting to find and build solvers:\n")
-    solvers = [CVXopt(), Mosek(), Mosek_CLI()]
+    solvers = [Mosek(), MosekCLI(), MosekConif(), CVXopt()]
     installed_solvers = [solver.name
                          for solver in solvers
                          if solver.installed]
     if not installed_solvers:
         log("Can't find any solvers!\n")
-    #    sys.stderr.write("Can't find any solvers!\n")
-    #    sys.exit(70)
 
     log("...finished building gpkit.")
 
+    if "GPKITSOLVERS" in os.environ:
+        log("Replaced found solvers (%s) with environment var GPKITSOLVERS"
+            " (%s)" % (installed_solvers, os.environ["GPKITSOLVERS"]))
+        settings["installed_solvers"] = os.environ["GPKITSOLVERS"]
+    else:
+        settings["installed_solvers"] = ", ".join(installed_solvers)
+
     # Choose default solver
-    settings["installed_solvers"] = ", ".join(installed_solvers)
     log("\nFound the following solvers: " + settings["installed_solvers"])
 
     # Write settings
-    envpath = pathjoin("gpkit", "env")
+    envpath = "env"
     replacedir(envpath)
-    log("Replaced the directory gpkit/env\n")
-    settingspath = envpath + os.sep + "settings"
+    settingspath = pathjoin(envpath, "settings")
     with open(settingspath, "w") as f:
-        for setting, value in settings.items():
+        for setting, value in sorted(settings.items()):
             f.write("%s : %s\n" % (setting, value))
-        f.write("\n")
 
-    with open("gpkit/build.log", "w") as file:
-        file.write(logstr)
+    with open(pathjoin(envpath, "build.log"), "w") as f:
+        f.write(LOGSTR)
 
-    #call("ls")
-    #call("echo \\# gpkit")
-    #call("ls gpkit")
-    #call("echo \\# gpkit/env")
-    #call("ls gpkit/env")
+    os.chdir(start_dir)

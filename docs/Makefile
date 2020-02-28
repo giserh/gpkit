@@ -50,6 +50,9 @@ help:
 clean:
 	rm -rf $(BUILDDIR)/*
 
+apidoc:
+	./apidoc.sh
+
 html:
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 	@echo

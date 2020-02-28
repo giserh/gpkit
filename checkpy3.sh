@@ -1,5 +1,7 @@
 cp gpkit/env/settings .
-sed -i '1s/.*/installed_solvers : mosek_cli/' gpkit/env/settings
+sed -i '1s/.*/installed_solvers : mosek, cvxopt/' gpkit/env/settings
 cat gpkit/env/settings
-python3 -c "import gpkit.tests; gpkit.tests.helpers.run_tests(gpkit.tests.t_examples.TESTS)"
+python3 gpkit/tests/run_tests.py
 mv settings gpkit/env
+rm *.pkl
+rm solution.*

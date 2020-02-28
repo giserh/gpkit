@@ -1,0 +1,16 @@
+BoundsChecking
+==============
+
+Cost
+----
+ F
+
+Constraints
+-----------
+ F >= D + T
+ D = rf*V^2*Ap
+ Ap = nu
+ T = mf*V
+ mf >= mi + mb
+ mf = rf*V
+ Fs <= mi

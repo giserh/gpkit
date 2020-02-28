@@ -1,14 +1,10 @@
 """Defines the VarKey class"""
-import numpy as np
-
-from .posyarray import PosyArray
-from .small_classes import Strings, Quantity
-from .small_classes import Counter
-
-from .small_scripts import isequal, mag, unitstr
+from __future__ import unicode_literals
+from .small_classes import HashVector, Count, qty
+from .repr_conventions import GPkitObject
 
 
-class VarKey(object):
+class VarKey(GPkitObject):  # pylint:disable=too-many-instance-attributes
     """An object to correspond to each 'variable name'.
 
     Arguments
@@ -23,127 +19,101 @@ class VarKey(object):
     -------
     VarKey with the given name and descr.
     """
-    new_unnamed_id = Counter()
+    unique_id = Count().next
+    vars_of_a_name = {}
+    subscripts = ("lineage", "idx")
 
     def __init__(self, name=None, **kwargs):
+        # NOTE: Python arg handling guarantees 'name' won't appear in kwargs
         self.descr = kwargs
-        # Python arg handling guarantees 'name' won't appear in kwargs
-        if isinstance(name, VarKey):
-            self.descr.update(name.descr)
-        elif hasattr(name, "c") and hasattr(name, "exp"):
-            if mag(name.c) == 1 and len(name.exp) == 1:
-                var = list(name.exp)[0]
-                self.descr.update(var.descr)
-            else:
-                raise TypeError("variables can only be formed from monomials"
-                                " with a c of 1 and a single variable")
+        self.descr["name"] = name or "\\fbox{%s}" % VarKey.unique_id()
+        unitrepr = self.unitrepr or self.units
+        if unitrepr in ["", "-", None]:  # dimensionless
+            self.descr["units"] = None
+            self.descr["unitrepr"] = "-"
         else:
-            if name is None:
-                name = "\\fbox{%s}" % VarKey.new_unnamed_id()
-            self.descr["name"] = str(name)
+            self.descr["units"] = qty(unitrepr)
+            self.descr["unitrepr"] = unitrepr
 
-        from . import units as ureg  # update in case user has disabled units
-
-        if "value" in self.descr:
-            value = self.descr["value"]
-            if isinstance(value, Quantity):
-                self.descr["value"] = value.magnitude
-                self.descr["units"] = value/value.magnitude
-        if ureg and "units" in self.descr:
-            units = self.descr["units"]
-            if isinstance(units, Strings):
-                units = units.replace("-", "dimensionless")
-                self.descr["units"] = Quantity(1.0, units)
-            elif isinstance(units, Quantity):
-                self.descr["units"] = units/units.magnitude
-            else:
-                raise ValueError("units must be either a string"
-                                 " or a Quantity from gpkit.units.")
-        self._hashvalue = hash(self.nomstr)
         self.key = self
+        fullstr = self.str_without(["modelnums", "vec"])
+        self.eqstr = fullstr + str(self.lineage) + self.unitrepr
+        self._hashvalue = hash(self.eqstr)
+        self.keys = set((self.name, fullstr))
+
+        if "idx" in self.descr:
+            if "veckey" not in self.descr:
+                vecdescr = self.descr.copy()
+                del vecdescr["idx"]
+                self.veckey = VarKey(**vecdescr)
+            else:
+                self.keys.add(self.veckey)
+                self.keys.add(self.str_without(["idx", "modelnums"]))
+
+        self.hmap = NomialMap({HashVector({self: 1}): 1.0})
+        self.hmap.units = self.units
+
+    def __repr__(self):
+        return self.str_without()
+
+    def __getstate__(self):
+        "Stores varkey as its metadata dictionary, removing functions"
+        state = self.descr.copy()
+        state.pop("units", None)  # not necessary, but saves space
+        for key, value in state.items():
+            if getattr(value, "__call__", None):
+                state[key] = str(value)
+        return state
+
+    def __setstate__(self, state):
+        "Restores varkey from its metadata dictionary"
+        self.__init__(**state)
+
+    def str_without(self, excluded=()):
+        "Returns string without certain fields (such as 'lineage')."
+        name = self.name
+        if ("lineage" not in excluded and self.lineage
+                and ("unnecessary lineage" not in excluded
+                     or self.necessarylineage)):
+            name = self.lineagestr("modelnums" not in excluded) + "." + name
+        if "idx" not in excluded:
+            if self.idx:
+                name += "[%s]" % ",".join(map(str, self.idx))
+            elif "vec" not in excluded and self.shape:
+                name += "[:]"
+        return name
+
+    def __getattr__(self, attr):
+        return self.descr.get(attr, None)
 
     @property
-    def name(self):
-        "name of this VarKey"
-        return self.descr['name']
+    def models(self):
+        "Returns a tuple of just the names of models in self.lineage"
+        return list(zip(*self.lineage))[0]
 
-    @property
-    def nomstr(self):
-        "string representation of this VarKey without the modelname"
-        return self.__repr__(["idx"])
-
-    @property
-    def units(self):
-        """units of this VarKey"""
-        return self.descr.get("units", None)
-
-    @property
-    def unitstr(self):
-        units = unitstr(self.units, r"~\mathrm{%s}", "L~")
-        units_tf = units.replace("frac", "tfrac").replace(r"\cdot", r"\cdot ")
-        return units_tf if units_tf != r"~\mathrm{-}" else ""
-
-    def __repr__(self, subscripts=["model", "idx"]):
-        s = self.name
-        for subscript in subscripts:
-            if subscript in self.descr:
-                s = "%s_%s" % (s, self.descr[subscript])
-        return s
-
-    def latex(self):
-        s = self.name
-        for subscript in ["idx", "model"]:
-            if subscript in self.descr:
-                s = "{%s}_{%s}" % (s, self.descr[subscript])
-                if subscript == "idx":
-                    if len(self.descr["idx"]) == 1:
-                        s = s[:-3]+s[-2:]  # drop the comma for 1-d vectors
-        return s
-
-    def _repr_latex_(self):
-        return "$$"+self.latex()+"$$"
+    def latex(self, excluded=()):
+        "Returns latex representation."
+        name = self.name
+        if "vec" not in excluded and "idx" not in excluded and self.shape:
+            name = "\\vec{%s}" % name
+        if "idx" not in excluded and self.idx:
+            name = "{%s}_{%s}" % (name, ",".join(map(str, self.idx)))
+        if ("lineage" not in excluded and self.lineage
+                and ("unnecessary lineage" not in excluded
+                     or self.necessarylineage)):
+            name = "{%s}_{%s}" % (name,
+                                  self.lineagestr("modelnums" not in excluded))
+        return name
 
     def __hash__(self):
         return self._hashvalue
 
     def __eq__(self, other):
-        if isinstance(other, VarKey):
-            if set(self.descr.keys()) != set(other.descr.keys()):
-                return False
-            for key in self.descr:
-                if key == "units":
-                    try:
-                        if not self.descr["units"] == other.descr["units"]:
-                            d = self.descr["units"]/other.descr["units"]
-                            if str(d.units) != "dimensionless":
-                                if not abs(mag(d)-1.0) <= 1e-7:
-                                    return False
-                    except:
-                        return False
-                else:
-                    if not isequal(self.descr[key], other.descr[key]):
-                        return False
-            return True
-        elif isinstance(other, Strings):
-            return self.nomstr == other
-        elif hasattr(other, "key"):
-            return other.key == self
-        elif isinstance(other, PosyArray):
-            it = np.nditer(other, flags=['multi_index', 'refs_ok'])
-            while not it.finished:
-                i = it.multi_index
-                it.iternext()
-                p = other[i]
-                if not hasattr(p, "exp"):  # array contains non-Monomial
-                    return False
-                v = VarKey(list(p.exp)[0])
-                if v.descr.pop("idx", None) != i:
-                    return False
-                if v != self:
-                    return False
-            return True
-        else:
+        if not hasattr(other, "descr"):
             return False
+        return self.eqstr == other.eqstr
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        return not self == other
+
+from .nomials import NomialMap  # pylint: disable=wrong-import-position

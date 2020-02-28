@@ -1,114 +1,69 @@
-Installation Instructions
-*************************
+.. _installation:
 
-If you encounter any bugs during installation, please email ``gpkit`` at ``mit.edu``.
+Installation
+************
+
+1. If you are on Mac or Windows, we recommend installing `Anaconda <http://www.continuum.io/downloads>`_. Alternatively, `install pip and create a virtual environment <https://packaging.python.org/guides/installing-using-pip-and-virtualenv/>`_.
+2. (optional) Install the MOSEK solver as directed below
+3. Run ``pip install gpkit`` in the appropriate terminal or command prompt.
+4. Open a Python prompt and run ``import gpkit`` to finish installation and run unit tests.
+
+If you encounter any bugs please email ``gpkit@mit.edu``
+or `raise a GitHub issue <http://github.com/convexengineering/gpkit/issues/new>`_.
+
+
+Installing MOSEK
+================
+GPkit interfaces with two off the shelf solvers: cvxopt, and MOSEK.
+Cvxopt is open source and installed by default; MOSEK requires a commercial licence or (free)
+academic license.
 
 Mac OS X
-========
-
-1. Install Python and build dependencies
-++++++++++++++++++++++++++++++++++++++++
-  - Install the Python 2.7 version of `Anaconda <http://continuum.io/downloads>`_.
-    - Check that Anaconda is installed: in a Terminal window, run ``python`` and check that the version string it prints while starting includes "Anaconda".
-      - If it does not, check that the Anaconda location in ``.profile`` in your home directory (you can run ``vim ~/.profile`` to read it) corresponds to the location of your Anaconda folder; if it doesn't, move the Anaconda folder there, and check again in the ``python`` startup header.
-  - If you don't want to install Anaconda, you'll need gcc, pip, numpy, and scipy, and may find iPython Notebook useful as a modeling environment.
   - If ``which gcc`` does not return anything, install the `Apple Command Line Tools <https://developer.apple.com/downloads/index.action?=command%20line%20tools>`_.
-  - *Optional:* to install gpkit into an isolated python environment you can create a new conda virtual environment with ``conda create -n gpkit anaconda`` and activate it with ``source activate gpkit``.
-
-
-2. Install either the MOSEK or CVXOPT GP solvers
-++++++++++++++++++++++++++++++++++++++++++++++++
-
-  - Download `CVXOPT <http://cvxopt.org/download/index.html>`_, then:
-      - Read the `official instructions and requirements <http://cvxopt.org/install/index.html#standard-installation>`_
-      - In the Terminal, navigate to the ``cvxopt`` folder
-      - Run ``python setup.py install``
-
-  - Download `MOSEK <http://mosek.com/resources/downloads>`_, then:
+  - Download `MOSEK 8 <https://www.mosek.com/downloads/>`_, then:
       - Move the ``mosek`` folder to your home directory
       - Follow `these steps for Mac <http://docs.mosek.com/7.0/toolsinstall/Mac_OS_X_installation.html>`_.
       - Request an `academic license file <http://license.mosek.com/academic>`_ and put it in ``~/mosek/``
-      - Run ``pip install ctypesgen --pre`` in the Terminal (gpkit uses ctypesgen to interface with the MOSEK C bindings)
-
-
-3. Install GPkit
-++++++++++++++++
-  - Run ``pip install gpkit`` at the command line.
-  - Run ``pip install ipywidgets`` for interactive control of models (optional)
-  - Run ``python -c "import gpkit.tests; gpkit.tests.run()"``
-  - If you want units support, install pint with ``pip install pint``.
-
-
 
 Linux
-=====
-
-1. Install either the MOSEK or CVXOPT GP solvers
-++++++++++++++++++++++++++++++++++++++++++++++++
-
-  - Download `CVXOPT <http://cvxopt.org/download/index.html>`_, then:
-      - Read the `official instructions and requirements`_
-      - In a terminal, navigate to the ``cvxopt`` folder
-      - Run ``python setup.py install``
-
-  - Download `MOSEK <http://mosek.com/resources/downloads>`_, then:
+  - Download `MOSEK 8 <https://www.mosek.com/downloads/>`_, then:
       - Move the ``mosek`` folder to your home directory
       - Follow `these steps for Linux <http://docs.mosek.com/7.0/toolsinstall/Linux_UNIX_installation_instructions.html>`_.
       - Request an `academic license file <http://license.mosek.com/academic>`_ and put it in ``~/mosek/``
-      - Run ``pip install ctypesgen --pre`` (gpkit uses ctypesgen to interface with the MOSEK C bindings)
-
-
-2. Install GPkit
-++++++++++++++++
-  - _Optional:_ to install gpkit into an isolated python environment, install virtualenv, run ``virtualenv $DESTINATION_DIR`` then activate it with ``source activate $DESTINATION_DIR/bin``.
-  - Run ``pip install gpkit`` at the command line.
-  - Run ``pip install ipywidgets`` for interactive control of models (optional)
-  - Run ``python -c "import gpkit.tests; gpkit.tests.run()"``
-  - If you want units support, install pint with ``pip install pint``.
-  - You may find iPython Notebook to be useful modeling environment.
-
-
 
 Windows
-=======
+    - Download `MOSEK 8 <https://www.mosek.com/downloads/>`_, then:
+        - Follow `these steps for Windows <http://docs.mosek.com/7.0/toolsinstall/Windows_installation.html>`_.
+        - Request an `academic license file <http://license.mosek.com/academic>`_ and put it in ``C:\Users\(your_username)\mosek\``
+        - Make sure ``gcc`` is on your system path.
+            - To do this, type ``gcc`` into a command prompt.
+            - If you get ``executable not found``, then install the 64-bit version (x86_64 installer architecture dropdown option) with GCC version 6.4.0 or older of `mingw <http://sourceforge.net/projects/mingw-w64/>`_.
+            - In an Anaconda command prompt (or equivalent), run ``cd C:\Program Files\mingw-w64\x86_64-6.4.0-posix-seh-rt_v5-rev0\`` (or whatever corresponds to the correct installation directory; note that if mingw is in ``Program Files (x86)`` instead of ``Program Files`` you've installed the 32-bit version by mistake)
+            - Run ``mingw-64`` to add it to your executable path. For step 3 of the install process you'll need to run ``pip install gpkit`` from this prompt.
+
+Debugging your installation
+===========================
+
+You may need to rebuild GPkit if any of the following occur:
+  - You install MOSEK after installing GPkit
+  - You see ``Could not load settings file.`` when importing GPkit, or
+  - ``Could not load MOSEK library: ImportError('expopt.so not found.')``
+
+To rebuild GPkit run ``python -c "from gpkit.build import rebuild; rebuild()"``.
+
+If that doesn't solve your issue then try the following:
+  - ``pip uninstall gpkit``
+  - ``pip install --no-cache-dir --no-deps gpkit``
+  - ``python -c "import gpkit.tests; gpkit.tests.run()"``
+  - If any tests fail, please email ``gpkit@mit.edu`` or `raise a GitHub issue <http://github.com/convexengineering/gpkit/issues/new>`_.
 
 
-1. Install Python dependencies
-++++++++++++++++++++++++++++++
-  - Install the Python 2.7 version of `Python (x,y) <https://python-xy.github.io/downloads.html>`_.
-    - Python (x,y) recommends removing any previous installations of Python before installation.
-    - Make sure to check the cvxopt checkbox under "Choose components" during installation.
+Bleeding-edge installations
+===========================
 
+Active developers may wish to install the `latest GPkit <http://github.com/convexengineering/gpkit>`_ directly from Github. To do so,
 
-2. (optional) Install the MOSEK GP solver
-+++++++++++++++++++++++++++++++++++++++++
-
-  - CVXOPT is included with Python (x,y) and does not need to be installed
-    - Installing CVXOPT with Anaconda or another Python distribution can be difficult, which is why we reccomend Python (x,y).
-
-  - Download `MOSEK <http://mosek.com/resources/downloads>`_, then:
-      - Follow `these steps for Windows <http://docs.mosek.com/7.0/toolsinstall/Windows_installation.html>`_.
-      - Request an `academic license file <http://license.mosek.com/academic>`_ and put it in ``~/mosek/``
-      - To use the MOSEK C bindings solver:
-        - Make sure "gcc" is on your system path (that is, you can type ``gcc`` into a command prompt and not get "executable not found")
-        - Run ``pip install ctypesgen --pre`` in the Command Prompt (gpkit uses ctypesgen to interface with the MOSEK C bindings)
-
-
-3. Install GPkit
-++++++++++++++++
-  - Run ``pip install gpkit`` at an Anaconda Command Prompt.
-  - Run ``pip install ipywidgets`` for interactive control of models (optional)
-  - Run ``python -c "import gpkit.tests; gpkit.tests.run()"``
-      - If attempting to run the tests results in ``ValueError: Unknown solver ''.`` and ``python -c "import gpkit"`` prints "Could not find settings file", then run ``python -c "import gpkit.build; gpkit.build.build_gpkit()"``, to look for and install solvers. After doing so (it should say which solvers have been found), run     ``python -c "import gpkit.tests; gpkit.tests.run()"`` again.
-  - If you want units support, install pint with ``pip install pint``.
-
-
-Updating GPkit between releases
-===============================
-
-Active developers may wish to install the `latest GPkit <http://github.com/convexopt/gpkit>` directly from the source code on Github. To do so,
-
-  - Run ``pip uninstall gpkit`` to uninstall your existing GPkit.
-  - Run ``git clone https://github.com/convexopt/gpkit.git`` to clone the GPkit repository, or ``cd gpkit; git pull origin master; cd ..`` to update your existing repository.
-  - Run ``pip install -e gpkit`` to reinstall GPkit.
-  - Run ``python -c "import gpkit.tests; gpkit.tests.run()"`` to test your installation.
+  1. ``pip uninstall gpkit`` to uninstall your existing GPkit.
+  2. ``git clone https://github.com/convexengineering/gpkit.git``
+  3. ``pip install -e gpkit`` to install that directory as your environment-wide GPkit.
+  4. ``cd ..; python -c "import gpkit.tests; gpkit.tests.run()"`` to test your installation from a non-local directory.

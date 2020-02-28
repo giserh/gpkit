@@ -1,13 +1,5 @@
 """Standard Python setup script for gpkit"""
-from __future__ import print_function
-
-import sys
-
-# custom build script
-if sys.argv[1] in ["build", "install"]:
-    from gpkit.build import build_gpkit
-    build_gpkit()
-
+import os
 from distutils.core import setup
 
 LONG_DESCRIPTION = """
@@ -25,7 +17,7 @@ and `CVXopt <http://cvxopt.org/>`_.
 
 LICENSE = """The MIT License (MIT)
 
-Copyright (c) 2015 MIT Convex Optimization Group
+Copyright (c) 2019 Edward Burnell
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -45,19 +37,28 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
+# create blank settings file to replace anything cached
+settings = os.sep.join([os.path.dirname(__file__), "gpkit", "env", "settings"])
+try:
+    with open(settings, "w") as f:
+        f.write("installed_solvers :  ")
+except IOError:
+    pass
+
 setup(
     name="gpkit",
     description="Package for defining and manipulating geometric "
                 "programming models.",
-    author="MIT Department of Aeronautics and Astronautics",
+    author="Edward Burnell",
     author_email="gpkit@mit.edu",
-    url="https://www.github.com/convexopt/gpkit",
-    install_requires=["numpy", "scipy"],
-    version="0.3.4.2",
-    packages=["gpkit", "gpkit._mosek", "gpkit.tests", "gpkit.interactive",
-              "gpkit.models"],
-    package_data={"gpkit": ["env/*"],
-                  "gpkit._mosek": ["lib/*"]},
+    url="https://www.github.com/convexengineering/gpkit",
+    install_requires=["numpy >= 1.13.3", "pint >= 0.8.1", "scipy", "ad",
+                      "cvxopt >= 1.1.8", "six"],
+    version="0.9.1.0",
+    packages=["gpkit", "gpkit.tools", "gpkit.interactive", "gpkit.constraints",
+              "gpkit.nomials", "gpkit.tests", "gpkit._mosek", "gpkit._pint"],
+    package_data={"gpkit": ["env/settings"],
+                  "gpkit._pint": ["*.txt"]},
     license=LICENSE,
     long_description=LONG_DESCRIPTION,
 )

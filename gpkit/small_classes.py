@@ -1,7 +1,10 @@
 """Miscellaneous small classes"""
+from __future__ import unicode_literals
+from operator import xor
+from functools import reduce  # pylint: disable=redefined-builtin
+from six import with_metaclass
 import numpy as np
-from collections import namedtuple as nt
-from . import units
+from ._pint import Quantity, qty  # pylint: disable=unused-import
 
 try:
     isinstance("", basestring)
@@ -9,70 +12,76 @@ try:
 except NameError:
     Strings = (str,)
 
-Quantity = units.Quantity
 Numbers = (int, float, np.number, Quantity)
 
-PosyTuple = nt('PosyTuple', ['exps', 'cs', 'varlocs', 'substitutions'])
-CootMatrixTuple = nt('CootMatrix', ['row', 'col', 'data'])
+
+class FixedScalarMeta(type):
+    "Metaclass to implement instance checking for fixed scalars"
+    def __instancecheck__(cls, obj):
+        return hasattr(obj, "hmap") and len(obj.hmap) == 1 and not obj.vks
 
 
-class CootMatrix(CootMatrixTuple):
+class FixedScalar(with_metaclass(FixedScalarMeta)):  # pylint: disable=no-init
+    "Instances of this class are scalar Nomials with no variables"
+
+
+class Count(object):
+    "Like python 2's itertools.count, for Python 3 compatibility."
+
+    def __init__(self):
+        self.count = -1
+
+    def next(self):
+        "Increment self.count and return it"
+        self.count += 1
+        return self.count
+
+
+def matrix_converter(name):
+    "Generates conversion function."
+    def to_(self):  # used in tocoo, tocsc, etc below
+        "Converts to another type of matrix."
+        # pylint: disable=unused-variable
+        return getattr(self.tocsr(), "to"+name)()
+    return to_
+
+
+class CootMatrix(object):
     "A very simple sparse matrix representation."
-    shape = (None, None)
+    def __init__(self, row, col, data):
+        self.row, self.col, self.data = row, col, data
+        self.shape = [(max(self.row) + 1) if self.row else 0,
+                      (max(self.col) + 1) if self.col else 0]
 
-    def append(self, row, col, data):
-        if row < 0 or col < 0:
-            raise ValueError("Only positive indices allowed")
-        self.row.append(row)
-        self.col.append(col)
-        self.data.append(data)
+    def __eq__(self, other):
+        return (self.row == other.row and self.col == other.col
+                and self.data == other.data and self.shape == other.shape)
 
-    def update_shape(self):
-        self.shape = (max(self.row)+1, max(self.col)+1)
-
-    def tocoo(self):
-        return self.tocsr().tocoo()
-
-    def todense(self):
-        return self.tocsr().todense()
+    tocoo = matrix_converter("coo")
+    tocsc = matrix_converter("csc")
+    todia = matrix_converter("dia")
+    todok = matrix_converter("dok")
+    todense = matrix_converter("dense")
 
     def tocsr(self):
         "Converts to a Scipy sparse csr_matrix"
         from scipy.sparse import csr_matrix
         return csr_matrix((self.data, (self.row, self.col)))
 
-    def tocsc(self):
-        return self.tocsr().tocsc()
-
-    def todok(self):
-        return self.tocsr().todok()
-
-    def todia(self):
-        return self.tocsr().todia()
-
     def dot(self, arg):
+        "Returns dot product with arg."
         return self.tocsr().dot(arg)
-
-
-class Counter(object):
-
-    def __init__(self):
-        self.start = -1
-
-    def __call__(self):
-        self.start += 1
-        return self.start
 
 
 class SolverLog(list):
     "Adds a `write` method to list so it's file-like and can replace stdout."
-
-    def __init__(self, verbosity=0, output=None, *args, **kwargs):
-        super(list, self).__init__(*args, **kwargs)
+    def __init__(self, verbosity=0, output=None, **kwargs):
+        list.__init__(self, **kwargs)
         self.verbosity = verbosity
         self.output = output
 
     def write(self, writ):
+        "Append and potentially write the new line."
         if writ != "\n":
             writ = writ.rstrip("\n")
             self.append(writ)
@@ -86,69 +95,66 @@ class DictOfLists(dict):
     def append(self, sol):
         "Appends a dict (of dicts) of lists to all held lists."
         if not hasattr(self, 'initialized'):
-            enlist_dict(sol, self)
-            self.initialized = True
+            _enlist_dict(sol, self)
+            self.initialized = True  # pylint: disable=attribute-defined-outside-init
         else:
-            append_dict(sol, self)
+            _append_dict(sol, self)
 
     def atindex(self, i):
         "Indexes into each list independently."
-        return self.__class__(index_dict(i, self, {}))
+        return self.__class__(_index_dict(i, self, self.__class__()))
 
-    def toarray(self, shape=None):
-        "Converts all lists into arrays."
-        if shape is None:
-            enray_dict(self, self)
+    def to_arrays(self):
+        "Converts all lists into array."
+        _enray(self, self)
 
 
-def enlist_dict(i, o):
-    "Recursviely copies dict i into o, placing non-dict items into lists."
-    for k, v in i.items():
+def _enlist_dict(d_in, d_out):
+    "Recursively copies d_in into d_out, placing non-dict items into lists."
+    for k, v in d_in.items():
         if isinstance(v, dict):
-            o[k] = enlist_dict(v, {})
+            d_out[k] = _enlist_dict(v, v.__class__())
         else:
-            o[k] = [v]
-    assert set(i.keys()) == set(o.keys())
-    return o
+            d_out[k] = [v]
+    assert set(d_in.keys()) == set(d_out.keys())
+    return d_out
 
 
-def append_dict(i, o):
-    "Recursviely travels dict o and appends items found in i."
-    for k, v in i.items():
+def _append_dict(d_in, d_out):
+    "Recursively travels dict d_out and appends items found in d_in."
+    for k, v in d_in.items():
         if isinstance(v, dict):
-            o[k] = append_dict(v, o[k])
+            d_out[k] = _append_dict(v, d_out[k])
         else:
-            o[k].append(v)
-    # assert set(i.keys()) == set(o.keys())  # keys change with swept varkeys
-    return o
+            d_out[k].append(v)
+    return d_out
 
 
-def index_dict(idx, i, o):
-    "Recursviely travels dict i, placing items at idx into dict o."
-    for k, v in i.items():
+def _index_dict(idx, d_in, d_out):
+    "Recursively travels dict d_in, placing items at idx into dict d_out."
+    for k, v in d_in.items():
         if isinstance(v, dict):
-            o[k] = index_dict(idx, v, {})
+            d_out[k] = _index_dict(idx, v, v.__class__())
         else:
             try:
-                o[k] = v[idx]
-            except IndexError:  # if not an array, return as is
-                o[k] = v
-    # assert set(i.keys()) == set(o.keys())  # keys change with swept varkeys
-    return o
+                d_out[k] = v[idx]
+            except (IndexError, TypeError):  # if not an array, return as is
+                d_out[k] = v
+    return d_out
 
 
-def enray_dict(i, o):
+def _enray(d_in, d_out):
     "Recursively turns lists into numpy arrays."
-    for k, v in i.items():
+    for k, v in d_in.items():
         if isinstance(v, dict):
-            o[k] = enray_dict(v, {})
+            d_out[k] = _enray(v, v.__class__())
         else:
             if len(v) == 1:
-                o[k] = np.array(v[0])
+                v = v[0]
             else:
-                o[k] = np.array(v)
-    # assert set(i.keys()) == set(o.keys())  # keys change with swept varkeys
-    return o
+                v = np.array(v)
+            d_out[k] = v
+    return d_out
 
 
 class HashVector(dict):
@@ -166,30 +172,30 @@ class HashVector(dict):
     >>> x = gpkit.nomials.Monomial('x')
     >>> exp = gpkit.small_classes.HashVector({x: 2})
     """
-    def __init__(self, *args, **kwargs):
-        super(HashVector, self).__init__(*args, **kwargs)
-        self._hashvalue = None
+    hashvalue = None
 
     def __hash__(self):
         "Allows HashVectors to be used as dictionary keys."
-        if self._hashvalue is None:
-            self._hashvalue = hash(tuple(self.items()))
-        return self._hashvalue
+        if self.hashvalue is None:
+            self.hashvalue = reduce(xor, map(hash, self.items()), 0)
+        return self.hashvalue
 
-    # temporarily disabling immutability
-    #def __setitem__(self, key, value):
-    #    raise TypeError("HashVectors are immutable.")
+    def copy(self):
+        "Return a copy of this"
+        hv = self.__class__(self)
+        hv.hashvalue = self.hashvalue
+        return hv
 
     def __neg__(self):
         "Return Hashvector with each value negated."
-        return HashVector({key: -val for (key, val) in self.items()})
+        return self.__class__({key: -val for (key, val) in self.items()})
 
     def __pow__(self, other):
         "Accepts scalars. Return Hashvector with each value put to a power."
         if isinstance(other, Numbers):
-            return HashVector({key: val**other for (key, val) in self.items()})
-        else:
-            return NotImplemented
+            return self.__class__({key: val**other
+                                   for (key, val) in self.items()})
+        return NotImplemented
 
     def __mul__(self, other):
         """Accepts scalars and dicts. Returns with each value multiplied.
@@ -197,12 +203,12 @@ class HashVector(dict):
         If the other object inherits from dict, multiplication is element-wise
         and their key's intersection will form the new keys."""
         if isinstance(other, Numbers):
-            return HashVector({key: val*other for (key, val) in self.items()})
+            return self.__class__({key: val*other
+                                   for (key, val) in self.items()})
         elif isinstance(other, dict):
             keys = set(self).intersection(other)
-            return HashVector({key: self[key] * other[key] for key in keys})
-        else:
-            return NotImplemented
+            return self.__class__({key: self[key] * other[key] for key in keys})
+        return NotImplemented
 
     def __add__(self, other):
         """Accepts scalars and dicts. Returns with each value added.
@@ -210,18 +216,31 @@ class HashVector(dict):
         If the other object inherits from dict, addition is element-wise
         and their key's union will form the new keys."""
         if isinstance(other, Numbers):
-            return HashVector({key: val+other
-                               for (key, val) in self.items()})
+            return self.__class__({key: val+other
+                                   for (key, val) in self.items()})
         elif isinstance(other, dict):
-            keys = set(self).union(other)
-            sums = {key: self.get(key, 0) + other.get(key, 0) for key in keys}
-            return HashVector(sums)
-        else:
-            return NotImplemented
+            sums = self.copy()
+            for key, value in other.items():
+                if key in sums:
+                    svalue = sums[key]
+                    if value == -svalue:
+                        del sums[key]  # remove zeros created by addition
+                    else:
+                        sums[key] = value + svalue
+                else:
+                    sums[key] = value
+            sums.hashvalue = None
+            return sums
+        return NotImplemented
 
+    # pylint: disable=multiple-statements
     def __sub__(self, other): return self + -other
     def __rsub__(self, other): return other + -self
     def __radd__(self, other): return self + other
     def __div__(self, other): return self * other**-1
+    def __truediv__(self, other): return self * other**-1
     def __rdiv__(self, other): return other * self**-1
     def __rmul__(self, other): return self * other
+
+
+EMPTY_HV = HashVector()
